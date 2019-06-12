@@ -416,141 +416,138 @@ __global__ void fill_blocks(uint32_t *scratchpad0,
     int hash_offset = mem_hash - scratchpad_location * threads_per_chunk;
     memory = memory + hash_offset * (memsize >> 4);
 
-    for(int step = 0; step < 8; step++) {
-		uint32_t *mem_seed = seed + step * hash * 4 * BLOCK_SIZE_UINT;
+	uint32_t *mem_seed = seed + hash * 4 * BLOCK_SIZE_UINT;
 
-		uint32_t *seed_src = mem_seed + segment * 2 * BLOCK_SIZE_UINT;
-		uint4 *seed_dst = memory + segment * 512 * BLOCK_SIZE_UINT4;
+	uint32_t *seed_src = mem_seed + segment * 2 * BLOCK_SIZE_UINT;
+	uint4 *seed_dst = memory + segment * 512 * BLOCK_SIZE_UINT4;
 
-		seed_dst[id] = make_uint4(seed_src[i1_0_0], seed_src[i1_0_1], seed_src[i1_1_0], seed_src[i1_1_1]);
-		seed_dst[id + 32] = make_uint4(seed_src[i1_2_0], seed_src[i1_2_1], seed_src[i1_3_0], seed_src[i1_3_1]);
-		seed_src += BLOCK_SIZE_UINT;
-		seed_dst += BLOCK_SIZE_UINT4;
-		seed_dst[id] = make_uint4(seed_src[i1_0_0], seed_src[i1_0_1], seed_src[i1_1_0], seed_src[i1_1_1]);
-		seed_dst[id + 32] = make_uint4(seed_src[i1_2_0], seed_src[i1_2_1], seed_src[i1_3_0], seed_src[i1_3_1]);
+	seed_dst[id] = make_uint4(seed_src[i1_0_0], seed_src[i1_0_1], seed_src[i1_1_0], seed_src[i1_1_1]);
+	seed_dst[id + 32] = make_uint4(seed_src[i1_2_0], seed_src[i1_2_1], seed_src[i1_3_0], seed_src[i1_3_1]);
+	seed_src += BLOCK_SIZE_UINT;
+	seed_dst += BLOCK_SIZE_UINT4;
+	seed_dst[id] = make_uint4(seed_src[i1_0_0], seed_src[i1_0_1], seed_src[i1_1_0], seed_src[i1_1_1]);
+	seed_dst[id + 32] = make_uint4(seed_src[i1_2_0], seed_src[i1_2_1], seed_src[i1_3_0], seed_src[i1_3_1]);
 
-		uint4 *next_block;
-		uint4 *prev_block;
-		uint4 *ref_block;
+	uint4 *next_block;
+	uint4 *prev_block;
+	uint4 *ref_block;
 
-		uint32_t *local_state = state + segment * BLOCK_SIZE_UINT;
-		uint32_t *local_addr = addr + segment * 32;
+	uint32_t *local_state = state + segment * BLOCK_SIZE_UINT;
+	uint32_t *local_addr = addr + segment * 32;
 
-		segments += segment;
-		uint16_t addr_start_idx = 0;
-		uint16_t prev_blk_idx;
-		int inc = 126;
+	segments += segment;
+	uint16_t addr_start_idx = 0;
+	uint16_t prev_blk_idx;
+	int inc = 126;
 
-		for (int s = 0; s < 4; s++) {
-			int idx = ((s == 0) ? 2 : 0); // index for first slice in each lane is 2
-			uint32_t curr_seg = segments[s * 2];
+	for(int s=0; s<4; s++) {
+		int idx = ((s == 0) ? 2 : 0); // index for first slice in each lane is 2
+		uint32_t curr_seg = segments[s * 2];
 
-			asm("mov.b32 {%0, %1}, %2;"
-			: "=h"(addr_start_idx), "=h"(prev_blk_idx) : "r"(curr_seg));
+		asm("mov.b32 {%0, %1}, %2;"
+		: "=h"(addr_start_idx), "=h"(prev_blk_idx) : "r"(curr_seg));
 
-			uint32_t *addr = addresses + addr_start_idx;
-			uint32_t *stop_addr = addresses + addr_start_idx + inc;
-			inc = 128;
+		uint32_t *addr = addresses + addr_start_idx;
+		uint32_t *stop_addr = addresses + addr_start_idx + inc;
+		inc = 128;
 
-			prev_block = memory + prev_blk_idx * BLOCK_SIZE_UINT4;
+		prev_block = memory + prev_blk_idx * BLOCK_SIZE_UINT4;
 
-			tmp_a = prev_block[id];
-			tmp_b = prev_block[id + 32];
-
-			__syncthreads();
-
-			for (; addr < stop_addr; addr += 32) {
-				local_addr[id] = addr[id];
-
-				uint64_t i_limit = stop_addr - addr;
-				if (i_limit > 32) i_limit = 32;
-
-				int16_t addr0, addr1;
-				asm("{mov.b32 {%0, %1}, %2;}": "=h"(addr0), "=h"(addr1) : "r"(local_addr[0]));
-
-				if (addr1 != -1) {
-					ref_block = memory + addr1 * BLOCK_SIZE_UINT4;
-					tmp_p = ref_block[id];
-					tmp_q = ref_block[id + 32];
-				}
-
-				for (int i = 0; i < i_limit; i++, idx++) {
-					next_block = memory + addr0 * BLOCK_SIZE_UINT4;
-
-					if (addr1 != -1) {
-						tmp_a ^= tmp_p;
-						tmp_b ^= tmp_q;
-
-						if (i < (i_limit - 1)) {
-							asm("{mov.b32 {%0, %1}, %2;}": "=h"(addr0), "=h"(addr1) : "r"(local_addr[i + 1]));
-							ref_block = memory + addr1 * BLOCK_SIZE_UINT4;
-							tmp_p = ref_block[id];
-							tmp_q = ref_block[id + 32];
-						}
-					} else {
-						uint32_t pseudo_rand_lo = __shfl_sync(0xffffffff, tmp_a.x, 0);
-						uint32_t pseudo_rand_hi = __shfl_sync(0xffffffff, tmp_a.y, 0);
-
-						uint64_t ref_lane = pseudo_rand_hi % 2; // thr_cost
-						uint32_t reference_area_size = 0;
-						if (segment == ref_lane) {
-							reference_area_size = s * 128 + idx - 1; // seg_length
-						} else {
-							reference_area_size = s * 128 + ((idx == 0) ? (-1) : 0);
-						}
-						asm("{mul.hi.u32 %0, %1, %1; mul.hi.u32 %0, %0, %2; }": "=r"(pseudo_rand_lo) : "r"(pseudo_rand_lo), "r"(reference_area_size));
-
-						uint32_t relative_position = reference_area_size - 1 - pseudo_rand_lo;
-
-						addr1 = ref_lane * 512 + relative_position % 512; // lane_length
-
-						ref_block = memory + addr1 * BLOCK_SIZE_UINT4;
-						tmp_a ^= ref_block[id];
-						tmp_b ^= ref_block[id + 32];
-
-						if (i < (i_limit - 1)) {
-							asm("{mov.b32 {%0, %1}, %2;}": "=h"(addr0), "=h"(addr1) : "r"(local_addr[i + 1]));
-						}
-					}
-
-					tmp_c = tmp_a;
-					tmp_d = tmp_b;
-
-					G1(local_state);
-					G2(local_state);
-					G3(local_state);
-					G4(local_state);
-
-					tmp_a ^= tmp_c;
-					tmp_b ^= tmp_d;
-
-					next_block[id] = tmp_a;
-					next_block[id + 32] = tmp_b;
-				}
-			}
-		}
+		tmp_a = prev_block[id];
+		tmp_b = prev_block[id + 32];
 
 		__syncthreads();
 
-		int dst_addr = 1020;
+		for(; addr < stop_addr; addr += 32) {
+			local_addr[id] = addr[id];
 
-		uint4 *block = memory + ((int16_t *) (&addresses[dst_addr]))[0] * BLOCK_SIZE_UINT4;
-		uint4 data = block[id + segment * 32];
+			uint64_t i_limit = stop_addr - addr;
+			if(i_limit > 32) i_limit = 32;
 
-		block = memory + ((int16_t *) (&addresses[dst_addr]))[1] * BLOCK_SIZE_UINT4;
-		data ^= block[id + segment * 32];
+			int16_t addr0, addr1;
+			asm("{mov.b32 {%0, %1}, %2;}": "=h"(addr0), "=h"(addr1) : "r"(local_addr[0]));
 
-		int idx0 = (segment == 0) ? i1_0_0 : i1_2_0;
-		int idx1 = (segment == 0) ? i1_0_1 : i1_2_1;
-		int idx2 = (segment == 0) ? i1_1_0 : i1_3_0;
-		int idx3 = (segment == 0) ? i1_1_1 : i1_3_1;
+			if(addr1 != -1) {
+				ref_block = memory + addr1 * BLOCK_SIZE_UINT4;
+				tmp_p = ref_block[id];
+				tmp_q = ref_block[id + 32];
+			}
 
-		uint32_t *out_mem = out + step * hash * BLOCK_SIZE_UINT;
-		out_mem[idx0] = data.x;
-		out_mem[idx1] = data.y;
-		out_mem[idx2] = data.z;
-		out_mem[idx3] = data.w;
+			for(int i=0;i<i_limit;i++, idx++) {
+				next_block = memory + addr0 * BLOCK_SIZE_UINT4;
+
+				if(addr1 != -1) {
+					tmp_a ^= tmp_p;
+					tmp_b ^= tmp_q;
+
+					if (i < (i_limit - 1)) {
+						asm("{mov.b32 {%0, %1}, %2;}": "=h"(addr0), "=h"(addr1) : "r"(local_addr[i + 1]));
+						ref_block = memory + addr1 * BLOCK_SIZE_UINT4;
+						tmp_p = ref_block[id];
+						tmp_q = ref_block[id + 32];
+					}
+				}
+				else {
+					uint32_t pseudo_rand_lo = __shfl_sync(0xffffffff, tmp_a.x, 0);
+					uint32_t pseudo_rand_hi = __shfl_sync(0xffffffff, tmp_a.y, 0);
+
+					uint64_t ref_lane = pseudo_rand_hi % 2; // thr_cost
+					uint32_t reference_area_size = 0;
+					if (segment == ref_lane) {
+						reference_area_size = s * 128 + idx - 1; // seg_length
+					} else {
+						reference_area_size = s * 128 + ((idx == 0) ? (-1) : 0);
+					}
+					asm("{mul.hi.u32 %0, %1, %1; mul.hi.u32 %0, %0, %2; }": "=r"(pseudo_rand_lo) : "r"(pseudo_rand_lo), "r"(reference_area_size));
+
+					uint32_t relative_position = reference_area_size - 1 - pseudo_rand_lo;
+
+					addr1 = ref_lane * 512 + relative_position % 512; // lane_length
+
+					ref_block = memory + addr1 * BLOCK_SIZE_UINT4;
+					tmp_a ^= ref_block[id];
+					tmp_b ^= ref_block[id + 32];
+
+					if (i < (i_limit - 1)) {
+						asm("{mov.b32 {%0, %1}, %2;}": "=h"(addr0), "=h"(addr1) : "r"(local_addr[i + 1]));
+					}
+				}
+
+				tmp_c = tmp_a; tmp_d = tmp_b;
+
+				G1(local_state);
+				G2(local_state);
+				G3(local_state);
+				G4(local_state);
+
+				tmp_a ^= tmp_c; tmp_b ^= tmp_d;
+
+				next_block[id] = tmp_a;
+				next_block[id + 32] = tmp_b;
+			}
+		}
 	}
+
+	__syncthreads();
+
+	int dst_addr = 1020;
+
+	uint4 *block = memory + ((int16_t*)(&addresses[dst_addr]))[0] * BLOCK_SIZE_UINT4;
+	uint4 data = block[id + segment * 32];
+
+	block = memory + ((int16_t*)(&addresses[dst_addr]))[1] * BLOCK_SIZE_UINT4;
+	data ^= block[id + segment * 32];
+
+	int idx0 = (segment == 0) ? i1_0_0 : i1_2_0;
+	int idx1 = (segment == 0) ? i1_0_1 : i1_2_1;
+	int idx2 = (segment == 0) ? i1_1_0 : i1_3_0;
+	int idx3 = (segment == 0) ? i1_1_1 : i1_3_1;
+
+	uint32_t *out_mem = out + hash * BLOCK_SIZE_UINT;
+	out_mem[idx0] = data.x;
+	out_mem[idx1] = data.y;
+	out_mem[idx2] = data.z;
+	out_mem[idx3] = data.w;
 };
 
 __global__ void prehash (
@@ -616,19 +613,15 @@ __global__ void prehash (
 __global__ void posthash (
         uint32_t *hash,
         uint32_t *out) {
-    extern __shared__ uint32_t shared[]; // size = 8 * 88
+    extern __shared__ uint32_t shared[]; // size = 88
 
     int hash_id = blockIdx.x;
     int thread = threadIdx.x;
 
-    int thr_id = thread % 4;
-    int session = thread / 4;
+    uint32_t *local_hash = hash + hash_id * ARGON2_RAW_LENGTH / 4;
+    uint32_t *local_out = out + hash_id * BLOCK_SIZE_UINT;
 
-	uint32_t *local_mem = &shared[session * BLAKE_SHARED_MEM_UINT];
-    uint32_t *local_hash = hash + (hash_id * 8 + session) * ARGON2_RAW_LENGTH / 4;
-    uint32_t *local_out = out + (hash_id * 8 + session) * BLOCK_SIZE_UINT;
-
-    blake2b_digestLong(local_hash, ARGON2_RAW_LENGTH / 4, local_out, ARGON2_DWORDS_IN_BLOCK, thr_id, local_mem);
+    blake2b_digestLong(local_hash, ARGON2_RAW_LENGTH / 4, local_out, ARGON2_DWORDS_IN_BLOCK, thread, shared);
 }
 
 void cuda_allocate(cuda_device_info *device, double chunks, size_t chunk_size) {
@@ -753,10 +746,10 @@ void cuda_allocate(cuda_device_info *device, double chunks, size_t chunk_size) {
 	}
 	free(segments);
 
-	size_t preseed_memory_size = 8 * device->profile_info.threads * IXIAN_SEED_SIZE;
-    size_t seed_memory_size = 8 * device->profile_info.threads * 4 * ARGON2_BLOCK_SIZE;
-    size_t out_memory_size = 8 * device->profile_info.threads * ARGON2_BLOCK_SIZE;
-    size_t hash_memory_size = 8 * device->profile_info.threads * ARGON2_RAW_LENGTH;
+	size_t preseed_memory_size = device->profile_info.threads * IXIAN_SEED_SIZE;
+    size_t seed_memory_size = device->profile_info.threads * 4 * ARGON2_BLOCK_SIZE;
+    size_t out_memory_size = device->profile_info.threads * ARGON2_BLOCK_SIZE;
+    size_t hash_memory_size = device->profile_info.threads * ARGON2_RAW_LENGTH;
 
     device->error = cudaMalloc(&device->arguments.preseed_memory[0], preseed_memory_size);
     if (device->error != cudaSuccess) {
@@ -912,7 +905,7 @@ bool cuda_kernel_prehasher(void *memory, int threads, argon2profile *profile, vo
         return false;
     }
 
-    prehash <<<threads / 4, work_items, 8 * BLAKE_SHARED_MEM, stream>>> (
+    prehash <<<threads / 2, work_items, 8 * BLAKE_SHARED_MEM, stream>>> (
                 device->arguments.preseed_memory[gpumgmt_thread->thread_id],
                 device->arguments.seed_memory[gpumgmt_thread->thread_id]);
 
@@ -929,7 +922,7 @@ void *cuda_kernel_filler(void *memory, int threads, argon2profile *profile, void
 
     size_t work_items = KERNEL_WORKGROUP_SIZE * parallelism;
 
-	fill_blocks <<<threads / 8, work_items, 0, stream>>> ((uint32_t*)device->arguments.memory_chunk_0,
+	fill_blocks <<<threads, work_items, 0, stream>>> ((uint32_t*)device->arguments.memory_chunk_0,
 			(uint32_t*)device->arguments.memory_chunk_1,
 			(uint32_t*)device->arguments.memory_chunk_2,
 			(uint32_t*)device->arguments.memory_chunk_3,
@@ -949,9 +942,9 @@ bool cuda_kernel_posthasher(void *memory, int threads, argon2profile *profile, v
 	cuda_device_info *device = gpumgmt_thread->device;
 	cudaStream_t stream = (cudaStream_t)gpumgmt_thread->device_data;
 
-    size_t work_items = 32;
+    size_t work_items = 4;
 
-	posthash <<<threads / 8, work_items, 8 * BLAKE_SHARED_MEM, stream>>> (
+	posthash <<<threads, work_items, BLAKE_SHARED_MEM, stream>>> (
             device->arguments.hash_memory[gpumgmt_thread->thread_id],
             device->arguments.out_memory[gpumgmt_thread->thread_id]);
 
