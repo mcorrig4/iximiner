@@ -335,7 +335,7 @@ void cuda_hasher::__run(cuda_device_info *device, int thread_id) {
 				continue;
 			}
 			hash_factory.set_seed_memory_offset(4 * ARGON2_BLOCK_SIZE);
-			hash_factory.set_threads(thread_data.threads);
+			hash_factory.set_threads(8 * thread_data.threads);
 
 			vector<hash_data> hashes;
 			int hash_count = hash_factory.generate_hashes(*profile, input, hashes);
