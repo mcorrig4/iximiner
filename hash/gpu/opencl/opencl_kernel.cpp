@@ -864,10 +864,10 @@ __kernel void posthash (
 	int hash_id = get_group_id(0);
 	int thread = get_local_id(0);
 
-    int thr_id = id % 4; // thread id in session
-    int session = id / 4; // 16 blake2b hashing session
+    int thr_id = thread % 4; // thread id in session
+    int session = thread / 4; // 16 blake2b hashing session
 
-    __local uint *local_mem = (__local uint *)&blake_shared[session * BLAKE_SHARED_MEM_ULONG];
+    __local ulong *local_mem = &blake_shared[session * BLAKE_SHARED_MEM_ULONG];
     __global uint *local_hash = hash + (hash_id * 16 + session) * ARGON2_RAW_LENGTH;
     __global uint *local_out = out + (hash_id * 16 + session) * BLOCK_SIZE_UINT;
 
