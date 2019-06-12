@@ -618,10 +618,14 @@ __global__ void posthash (
     int hash_id = blockIdx.x;
     int thread = threadIdx.x;
 
-    uint32_t *local_hash = hash + hash_id * ARGON2_RAW_LENGTH / 4;
-    uint32_t *local_out = out + hash_id * BLOCK_SIZE_UINT;
+    int thr_id = thread % 4;
+    int session = thread / 4;
 
-    blake2b_digestLong(local_hash, ARGON2_RAW_LENGTH / 4, local_out, ARGON2_DWORDS_IN_BLOCK, thread, shared);
+    uint32_t *local_mem = &shared[session * BLAKE_SHARED_MEM_UINT];
+    uint32_t *local_hash = hash + (hash_id * 8 + session) * ARGON2_RAW_LENGTH / 4;
+    uint32_t *local_out = out + (hash_id * 8 + session) * BLOCK_SIZE_UINT;
+
+    blake2b_digestLong(local_hash, ARGON2_RAW_LENGTH / 4, local_out, ARGON2_DWORDS_IN_BLOCK, thr_id, local_mem);
 }
 
 void cuda_allocate(cuda_device_info *device, double chunks, size_t chunk_size) {
@@ -942,9 +946,9 @@ bool cuda_kernel_posthasher(void *memory, int threads, argon2profile *profile, v
 	cuda_device_info *device = gpumgmt_thread->device;
 	cudaStream_t stream = (cudaStream_t)gpumgmt_thread->device_data;
 
-    size_t work_items = 4;
+    size_t work_items = 32;
 
-	posthash <<<threads, work_items, BLAKE_SHARED_MEM, stream>>> (
+	posthash <<<threads / 8, work_items, 8 * BLAKE_SHARED_MEM, stream>>> (
             device->arguments.hash_memory[gpumgmt_thread->thread_id],
             device->arguments.out_memory[gpumgmt_thread->thread_id]);
 
