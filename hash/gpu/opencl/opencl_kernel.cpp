@@ -864,10 +864,14 @@ __kernel void posthash (
 	int hash_id = get_group_id(0);
 	int thread = get_local_id(0);
 
-    __global uint *local_hash = hash + hash_id * ARGON2_RAW_LENGTH;
-    __global uint *local_out = out + hash_id * BLOCK_SIZE_UINT;
+    int thr_id = id % 4; // thread id in session
+    int session = id / 4; // 16 blake2b hashing session
 
-    blake2b_digestLong_global(local_hash, ARGON2_RAW_LENGTH, local_out, ARGON2_DWORDS_IN_BLOCK, thread, blake_shared);
+    __local uint *local_mem = (__local uint *)&blake_shared[session * BLAKE_SHARED_MEM_ULONG];
+    __global uint *local_hash = hash + (hash_id * 16 + session) * ARGON2_RAW_LENGTH;
+    __global uint *local_out = out + (hash_id * 16 + session) * BLOCK_SIZE_UINT;
+
+    blake2b_digestLong_global(local_hash, ARGON2_RAW_LENGTH, local_out, ARGON2_DWORDS_IN_BLOCK, thr_id, local_mem);
 }
 
 )OCL";
