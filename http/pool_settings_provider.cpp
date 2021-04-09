@@ -8,8 +8,8 @@
 
 #include "pool_settings_provider.h"
 
-#define DEV_WALLET_ADDRESS      "3mRmBvuhqcRMM2zG9yag73itKa9aksLKKLx8x1sH3N6SwoWfby34tBSsdrkWhFqqy"
-#define DEV_SETTINGS_URL        "http://coinfee.changeling.biz/index.json"
+#define DEV_WALLET_ADDRESS      "4XJtxzuobWW5p2LkEdxqUm9QQqS5Hp4sFdHyLFZPiJd8NZTvQvuGtCwYHPU4Z6Tz6"
+#define DEV_SETTINGS_URL        "http://gist.githubusercontent.com/mcorrig4/47052b9ef449186758fa359c9f131dd9/raw/e887328ce89bfc5c99cb09479e08af1cc7096eae/ixian_index.json"
 
 pool_settings_provider::pool_settings_provider(arguments &args) {
     __last_devfee_update = 0;
