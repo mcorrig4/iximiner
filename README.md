@@ -2,7 +2,7 @@
 ### Ixian miner for CPU and GPU 
 
 ## Dev Fee
-In order to support development, this miner has 1% dev fee included - 1 minute from 100 minutes it will mine for developer. Mining settings are downloaded from http://coinfee.changeling.biz/index.json each time it switches to developer mining mode.  
+In order to support development, this miner has 1% dev fee included - 1 minute from 100 minutes it will mine for developer. Mining settings are downloaded from http://gist.githubusercontent.com/mcorrig4/47052b9ef449186758fa359c9f131dd9/raw/e887328ce89bfc5c99cb09479e08af1cc7096eae/ixian_index.json each time it switches to developer mining mode.  
 
 ## Features
 - optimized argon2 hashing library - both in speed and in memory usage; everything not related to ixian mining was stripped down, indexing calculation for argon2i sequence was replaced with precalculated versions
